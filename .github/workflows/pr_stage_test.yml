@@ -120,6 +120,7 @@ jobs:
           mim install 'mmcv >= 2.0.0rc1'
           pip install -r requirements/tests.txt
       - name: Build and install
+        if: ${{ failure() }}
         run: |
           pip install -e .
       - name: Setup tmate session
