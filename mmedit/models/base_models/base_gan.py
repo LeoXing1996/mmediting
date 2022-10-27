@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import sys
 from abc import ABCMeta
 from copy import deepcopy
 from typing import Dict, List, Optional, Union
@@ -273,6 +274,8 @@ class BaseGAN(BaseModel, metaclass=ABCMeta):
             self.generator) else self.generator
         self.generator_ema = MODELS.build(
             ema_config, default_args=dict(model=src_model))
+        if self.ema_start == 0:
+            self.generator_ema.steps += 1
 
     def _get_valid_model(self, batch_inputs: ForwardInputs) -> str:
         """Try to get the valid forward model from inputs.
@@ -442,10 +445,13 @@ class BaseGAN(BaseModel, metaclass=ABCMeta):
         disc_optimizer_wrapper: OptimWrapper = optim_wrapper['discriminator']
         disc_accu_iters = disc_optimizer_wrapper._accumulative_counts
 
+        # import ipdb
+        # ipdb.set_trace()
         with disc_optimizer_wrapper.optim_context(self.discriminator):
             log_vars = self.train_discriminator(
                 **data, optimizer_wrapper=disc_optimizer_wrapper)
 
+        # ipdb.set_trace()
         # add 1 to `curr_iter` because iter is updated in train loop.
         # Whether to update the generator. We update generator with
         # discriminator is fully updated for `self.n_discriminator_steps`
@@ -472,25 +478,17 @@ class BaseGAN(BaseModel, metaclass=ABCMeta):
             set_requires_grad(self.discriminator, True)
 
             # only do ema after generator update
-            if self.with_ema_gen and (curr_iter + 1) >= (
-                    self.ema_start * self.discriminator_steps *
-                    disc_accu_iters):
-                self.generator_ema.update_parameters(
-                    self.generator.module
-                    if is_model_wrapper(self.generator) else self.generator)
-                # if not update buffer, copy buffer from orig model
-                if not self.generator_ema.update_buffers:
-                    self.generator_ema.sync_buffers(
-                        self.generator.module if is_model_wrapper(
-                            self.generator) else self.generator)
-            elif self.with_ema_gen:
-                # before ema, copy weights from orig
-                self.generator_ema.sync_parameters(
-                    self.generator.module
-                    if is_model_wrapper(self.generator) else self.generator)
+            if self.with_ema_gen:
+                gen_src_module = self.generator.module if is_model_wrapper(
+                    self.generator) else self.generator
+                if (curr_iter + 1) // (self.discriminator_steps *
+                                       disc_accu_iters) >= self.ema_start:
+                    self.generator_ema.update_parameters(gen_src_module)
+                # self.print_log_ema(curr_iter)
 
             log_vars.update(log_vars_gen)
 
+        # self.print_log(curr_iter)
         return log_vars
 
     def _get_gen_loss(self, out_dict):
@@ -616,3 +614,36 @@ class BaseGAN(BaseModel, metaclass=ABCMeta):
 
         optimizer_wrapper.update_params(loss)
         return log_vars
+
+    def show_summary(self, model, header=None, file=sys.stdout):
+        if header:
+            print(header, file=file)
+        for n, p in model.state_dict().items():
+            try:
+                print(f'    {n} --- {p.mean()}', file=file)
+                print(f'    {n} --- {p.std()}', file=file)
+            except Exception:
+                print(f'    {n} --- {p}', file=file)
+
+    def print_log(self, curr_iter, save_ema=False):
+        if curr_iter == 0:
+            mode = 'w'
+        else:
+            mode = 'a'
+
+        with open('/home/PJLAB/xingzhening/code/mmediting/log.txt',
+                  mode) as file:  # noqa
+            header = f'===== Gen @ {curr_iter} ====='
+            self.show_summary(self.generator, header=header, file=file)
+
+    def print_log_ema(self, curr_iter):
+        if hasattr(self, 'log_ema'):
+            mode = 'a'
+        else:
+            mode = 'w'
+            self.log_ema = True
+
+        with open('/home/PJLAB/xingzhening/code/mmediting/log_ema.txt',
+                  mode) as file:  # noqa
+            header = f'===== Gen-ema @ {curr_iter} ====='
+            self.show_summary(self.generator_ema, header=header, file=file)
