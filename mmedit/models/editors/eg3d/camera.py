@@ -310,6 +310,74 @@ class BaseCamera(BaseModule):
                                                up)
         return camera2world
 
+    def interpolation_cam2world(self,
+                                num_frames: int,
+                                h_mean: Optional[float] = None,
+                                v_mean: Optional[float] = None,
+                                h_std: Optional[float] = None,
+                                v_std: Optional[float] = None,
+                                look_at: VectorType = None,
+                                up: VectorType = None,
+                                radius: Optional[float] = None,
+                                batch_size: int = 1,
+                                device: Optional[str] = None
+                                ) -> List[torch.Tensor]:
+        """Interpolation camera original in spherical trajectory and return a
+        list of camera-to-world matrix.
+
+        Args:
+            num_frames (int): The number of frames in interpolation.
+            h_mean (Optional[float], optional): Mean of horizontal range in
+                radian. Defaults to None.
+            v_mean (Optional[float], optional): Mean of vertical range in
+                radian. Defaults to None.
+            h_std (Optional[float], optional): Standard deviation of
+                horizontal in radian. Defaults to None.
+            v_std (Optional[float], optional): Standard deviation of
+                horizontal in radian. Defaults to None.
+            look_at (Optional[Tuple[list, torch.Tensor]], optional): Look-at
+                position. Defaults to None.
+            up (Optional[Tuple[list, torch.Tensor]], optional): Up direction
+                of the world coordinate. Defaults to None.
+            radius (Optional[float]): Radius of the sphere. Defaults to None.
+            batch_size (int, optional): Batch size of the results.
+                Defaults to 1.
+            device (Optional[str], optional): The target device of the results.
+                Defaults to None.
+
+        Returns:
+            List[torch.Tensor]: List of sampled camera-to-world matrix.
+        """
+        h_mean = self.horizontal_mean if h_mean is None else h_mean
+        v_mean = self.vertical_mean if v_mean is None else v_mean
+        h_std = self.horizontal_std if h_std is None else h_std
+        v_std = self.vertical_std if v_std is None else v_std
+        radius = self.radius if radius is None else radius
+        device = self.device if device is None else device
+        look_at = self.look_at if look_at is None else look_at
+        if not isinstance(look_at, torch.FloatTensor):
+            look_at = torch.FloatTensor(look_at)
+        look_at = look_at.to(device)
+        up = self.up if up is None else up
+        if not isinstance(up, torch.FloatTensor):
+            up = torch.FloatTensor(up)
+        up = up.to(device)
+
+        cam2world_list = []
+        for idx in range(num_frames):
+            h = h_mean + h_std * math.sin(2 * math.pi / num_frames * idx)
+            v = v_mean + v_std * math.cos(2 * math.pi / num_frames * idx)
+            cam2world = self.sample_camera2world(
+                h_mean=h,
+                v_mean=v,
+                h_std=0,
+                v_std=0,
+                batch_size=batch_size,
+                device=device)
+            cam2world_list.append(cam2world)
+
+        return cam2world_list
+
     def __repr__(self):
         repr_string = f'{self.__class__.__name__}'
         attribute_list = [

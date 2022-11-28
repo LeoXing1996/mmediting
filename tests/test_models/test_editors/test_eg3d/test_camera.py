@@ -138,6 +138,13 @@ class TestBaseCamera(TestCase):
         with self.assertRaises(ValueError):
             camera._sample_in_range(1, 1, 1)
 
+    def test_interpolation_cam2world(self):
+        cfg_ = deepcopy(self.default_cfg)
+        camera = BaseCamera(**cfg_)
+        cam2world_list = camera.interpolation_cam2world(10, batch_size=2)
+        self.assertEqual(len(cam2world_list), 10)
+        self.assertTrue(all([m.shape == (2, 4, 4) for m in cam2world_list]))
+
 
 class TestUniformCamera(TestCase):
 
