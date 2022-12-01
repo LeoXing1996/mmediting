@@ -20,11 +20,11 @@ Unsupervised generation of high-quality multi-view-consistent images and 3D shap
 
 ## Results and Models
 
-|    Model     |     Comment     | FID50k | FID50k-Camera |                  Config                  |  Download   |
-| :----------: | :-------------: | :----: | :-----------: | :--------------------------------------: | :---------: |
-| ShapeNet-Car | official weight | 5.6573 |    5.2325     | [config](/configs/eg3d/eg3d_shapenet.py) | [model](<>) |
-|     AFHQ     | official weight | 2.9134 |    6.4213     |   [config](/configs/eg3d/eg3d_afhq.py)   | [model](<>) |
-|     FFHQ     | official weight | 4.3076 |    6.4453     |     [config](/configs/eg3d_ffhq.py)      | [model](<>) |
+|    Model     |     Comment     | FID50k | FID50k-Camera |                              Config                               |  Download   |
+| :----------: | :-------------: | :----: | :-----------: | :---------------------------------------------------------------: | :---------: |
+| ShapeNet-Car | official weight | 5.6573 |    5.2325     | [config](/configs/eg3d/eg3d_cvt-official-rgb_shapenet-128x128.py) | [model](<>) |
+|     AFHQ     | official weight | 2.9134 |    6.4213     |   [config](/configs/eg3d/eg3d_cvt-official-rgb_afhq-512x512.py)   | [model](<>) |
+|     FFHQ     | official weight | 4.3076 |    6.4453     |   [config](configs/eg3d/eg3d_cvt-official-rgb_ffhq-512x512.py)    | [model](<>) |
 
 - `FID50k-Camera` denotes image generated with random sampled camera position.
 - `FID50k` denotes image generated with camera position randomly sampled from the original dataset.
@@ -36,31 +36,90 @@ For example, if we use FP16 at the super resolution module in [FFHQ model](/conf
 
 ## About generate images and videos with High-Level API
 
+You can use the following command to generate sequence images with continuous changed camera position as input.
+
 ```python
-TODO
+python demo/mmediting_inference_demo.py --model-name eg3d \
+    --model-config configs/eg3d/eg3d_cvt-official-rgb_afhq-512x512.py \
+    --model-ckpt afhq_ema.pt \
+    --result-out-dir eg3d_output \
+    --interpolation camera \
+    --num-frames 100
 ```
 
-Then you the following video will be saved.
+The the following video will be saved to `eg3d_output`.
 
 <div align=center>
 <video src="https://user-images.githubusercontent.com/28132635/204278664-b73b133b-9c3f-4a87-8750-133b7dedaebb.mp4"/>
 </div>
 
-TODO: To interpolate
+To interpolate the camera position and style code at the same time, you can use the following command.
+
+```python
+python demo/mmediting_inference_demo.py --model-name eg3d \
+    --model-config configs/eg3d/eg3d_cvt-official-rgb_ffhq-512x512.py \
+    --model-ckpt ffhq_ema.pt \
+    --result-out-dir eg3d_output \
+    --interpolation both \
+    --num-frames 100
+    --seed 233
+```
 
 <div align=center>
-<video src="https://user-images.githubusercontent.com/28132635/204279787-09aa4764-d696-4abb-a21b-3fbf9c701d08.mp4"/>
+<video src="https://user-images.githubusercontent.com/28132635/205051392-e3e47ee3-bd18-4cd7-92ac-1cfc66014601.mp4"/>
 </div>
 
-You can also change random seed in your code.
+If you only want to save video of depth map, you can use the following command:
 
-TODO: seed 42
+```python
+python demo/mmediting_inference_demo.py --model-name eg3d \
+    --model-config configs/eg3d/eg3d_cvt-official-rgb_shapenet-128x128.py \
+    --model-ckpt shapenet-ema.pt \
+    --result-out-dir eg3d_output \
+    --interpolation camera \
+    --num-frames 100 \
+    --vis-mode depth
+```
 
 <div align=center>
-<video src="https://user-images.githubusercontent.com/28132635/204280820-234e93c6-b7ec-4d1a-9346-4185fbdb6163.mp4 "/>
+<video src="https://user-images.githubusercontent.com/28132635/205051103-b0a0e540-c6b8-4f3c-a9ee-0e01ee9fd75b.mp4"/>
 </div>
 
 ## How to prepare dataset
+
+You should prepare your dataset follow the official [repo](https://github.com/NVlabs/eg3d/tree/main/dataset_preprocessing). Then preprocess the `dataset.json` with the following script:
+
+```python
+import json
+from argparse import ArgumentParser
+
+from mmengine.fileio.io import load
+
+
+def main():
+
+    parser = ArgumentParser()
+    parser.add_argument(
+        'in-anno', type=str, help='Path to the official annotation file.')
+    parser.add_argument(
+        'out-anno', type=str, help='Path to MMEditing\'s annotation file.')
+    args = parser.parse_args()
+
+    anno = load(args.in_anno)
+    label = anno['labels']
+
+    anno_dict = {}
+    for line in label:
+        name, label = line
+        anno_dict[name] = label
+
+    with open(args.out_anno, 'w') as file:
+        json.dump(anno_dict, file)
+
+
+if __name__ == '__main__':
+    main()
+```
 
 ## Citation
 
