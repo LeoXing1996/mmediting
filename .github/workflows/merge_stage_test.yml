@@ -204,6 +204,7 @@ jobs:
           mim install 'mmdet >= 3.0.0rc2'
           pip install -r requirements/tests.txt
           pip install imageio-ffmpeg
+          pip install git+https://github.com/openai/CLIP.git
       - name: Build and install
         run: |
           python setup.py check -m -s
