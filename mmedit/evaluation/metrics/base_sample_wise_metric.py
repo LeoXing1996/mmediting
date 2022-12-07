@@ -5,6 +5,7 @@ from typing import List, Optional, Sequence
 
 import torch.nn as nn
 from mmengine.evaluator import BaseMetric
+from mmengine.model import is_model_wrapper
 from torch.utils.data.dataloader import DataLoader
 
 from mmedit.registry import METRICS
@@ -37,7 +38,8 @@ class BaseSampleWiseMetric(BaseMetric):
             for output. Default: 1
     """
 
-    metric = None
+    SAMPLER_MODE = 'normal'
+    metric = None  # NOTE: fuck, i do not want this
 
     def __init__(self,
                  gt_key: str = 'gt_img',
@@ -110,17 +112,22 @@ class BaseSampleWiseMetric(BaseMetric):
             self.results.append({self.metric: result})
 
     def process_image(self, gt, pred, mask):
-        return 0
+        raise NotImplementedError
 
     def evaluate(self, size=None) -> dict:
+        # >>> TODO: In GenLoop, I do not want size, delete this later
         if size is None:
             size = self.size
+        # <<< TODO: In GenLoop, I do not want size, delete this later
         return super().evaluate(size)
 
     def prepare(self, module: nn.Module, dataloader: DataLoader):
         self.SAMPLER_MODE = 'normal'
         self.sample_model = 'orig'
-        self.size = dataloader.dataset.__len__()
+        self.size = len(dataloader.dataset)
+        if is_model_wrapper(module):
+            module = module.module
+        self.data_preprocessor = module.data_preprocessor
 
     def get_metric_sampler(self, model: nn.Module, dataloader: DataLoader,
                            metrics) -> DataLoader:

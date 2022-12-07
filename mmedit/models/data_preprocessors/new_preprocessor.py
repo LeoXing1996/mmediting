@@ -15,7 +15,7 @@ CastData = Union[tuple, dict, BaseDataElement, torch.Tensor, list]
 
 
 @MODELS.register_module()
-class GenDataPreprocessor(ImgDataPreprocessor):
+class NewDataPreprocessor(ImgDataPreprocessor):
     """Image pre-processor for generative models. This class provide
     normalization and bgr to rgb conversion for image tensor inputs. The input
     of this classes should be dict which keys are `inputs` and `data_samples`.
@@ -112,21 +112,12 @@ class GenDataPreprocessor(ImgDataPreprocessor):
             'The input of `_preprocess_image_tensor` should be a NCHW '
             'tensor or a list of tensor, but got a tensor with shape: '
             f'{inputs.shape}')
-        if self._channel_conversion:
-            inputs = inputs[:, [2, 1, 0], ...]
-        # Convert to float after channel conversion to ensure
-        # efficiency
-        inputs = inputs.float()
-        if self._enable_normalize:
-            inputs = (inputs - self.mean) / self.std
+        inputs = self._norm_and_conversion(inputs)
         h, w = inputs.shape[2:]
         target_h = math.ceil(h / self.pad_size_divisor) * self.pad_size_divisor
         target_w = math.ceil(w / self.pad_size_divisor) * self.pad_size_divisor
         pad_h = target_h - h
         pad_w = target_w - w
-        # NOTE: support pad mode
-        # batch_inputs = F.pad(inputs, (0, pad_w, 0, pad_h), 'constant',
-        #                      self.pad_value)
         batch_inputs = F.pad(inputs, (0, pad_w, 0, pad_h), self.pad_mode,
                              self.pad_value)
 
@@ -151,8 +142,8 @@ class GenDataPreprocessor(ImgDataPreprocessor):
             inputs = (inputs - self.mean) / self.std
         return inputs
 
-    def _preprocess_image_new(self,
-                              tensor_list: List[Tensor]) -> Tuple[Tensor]:
+    def _preprocess_image_list(self,
+                               tensor_list: List[Tensor]) -> Tuple[Tensor]:
 
         dim = tensor_list[0].dim()
         assert all([
@@ -191,7 +182,6 @@ class GenDataPreprocessor(ImgDataPreprocessor):
         stacked_tensor = self._norm_and_conversion(stacked_tensor)
         return stacked_tensor, padded_sizes
 
-    # NOTE: dict inputs from specific sampler
     def process_dict_inputs(self, batch_inputs: dict) -> dict:
         """Preprocess dict type inputs.
 
@@ -218,9 +208,7 @@ class GenDataPreprocessor(ImgDataPreprocessor):
                          f'But \'{k}\' is list of \'{type(inputs[0])}\'.')
 
                     if k not in self._NON_IMAGE_KEYS:
-                        # inputs, pad_size = padding_and_stack(
-                        #     inputs, self.pad_size_divisor, self.pad_args)
-                        inputs, pad_size = self._preprocess_image_new(inputs)
+                        inputs, pad_size = self._preprocess_image_list(inputs)
                         self.pad_size_dict[k] = pad_size
 
                     batch_inputs[k] = inputs
@@ -229,6 +217,14 @@ class GenDataPreprocessor(ImgDataPreprocessor):
                 self.pad_size_dict[k] = pad_size
 
         return batch_inputs
+
+    def process_data_sample(self, data_samples: List, training) -> list:
+        for data_sample in data_samples:
+            if training or self.only_norm_gt_in_training:
+                # NOTE: EditDataPreprocessor only handle gt_img,
+                data_sample.gt_img.data = (
+                    (data_sample.gt_img.data - self.mean[0]) / self.std[0])
+        return data_samples
 
     def forward(self, data: dict, training: bool = False) -> dict:
         """Performs normalization、padding and bgr2rgb conversion based on
@@ -242,9 +238,11 @@ class GenDataPreprocessor(ImgDataPreprocessor):
         Returns:
             dict: Data in the same format as the model input.
         """
-
         data = self.cast_data(data)
         _batch_inputs = data['inputs']
+        _batch_data_samples = data.get('data_samples', None)
+
+        # process inputs
         if (isinstance(_batch_inputs, torch.Tensor)
                 or is_list_of(_batch_inputs, torch.Tensor)):
             data = super().forward(data, training)
@@ -257,16 +255,22 @@ class GenDataPreprocessor(ImgDataPreprocessor):
             # convert list of dict to dict of list
             keys = _batch_inputs[0].keys()
             dict_input = {k: [inp[k] for inp in _batch_inputs] for k in keys}
-            # _batch_inputs = self._process_list_of_dict(_batch_inputs)
             _batch_inputs = self.process_dict_inputs(dict_input)
         else:
-            raise ValueError('')
-
+            raise ValueError('Only support following inputs types: '
+                             '\'torch.Tensor\', \'List[torch.Tensor]\', '
+                             '\'dict\', \'List[dict]\'. But receive '
+                             f'\'{type(_batch_inputs)}\'.')
         data['inputs'] = _batch_inputs
-        data.setdefault('data_samples', None)
+
+        # process data samples
+        if _batch_data_samples:
+            _batch_data_samples = self.process_data_sample(
+                _batch_data_samples, training)
+        data.setdefault('data_samples', _batch_data_samples)
+
         return data
 
-    # TODO: we have so much keys in input, what do we deconstruct?
     def destructor(self, batch_tensor: torch.Tensor, target_key: str = 'img'):
         """Destructor of data processor. Destruct padding, normalization and
         dissolve batch.
@@ -277,10 +281,6 @@ class GenDataPreprocessor(ImgDataPreprocessor):
         Returns:
             Tensor: Destructed output.
         """
-
-        # TODO: give destructor a default target_key,
-        # which is same as default key in input dict
-
         # De-normalization
         batch_tensor = batch_tensor * self.outputs_std + self.outputs_mean
 

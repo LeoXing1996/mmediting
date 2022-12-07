@@ -13,6 +13,7 @@ from mmedit.registry import METRICS
 from ..functional import (disable_gpu_fuser_on_pt19, load_inception,
                           prepare_inception_feat)
 from .base_gen_metric import GenerativeMetric
+from .metrics_utils import obtain_data
 
 
 @METRICS.register_module('FID-Full')
@@ -120,6 +121,8 @@ class FrechetInceptionDistance(GenerativeMetric):
             Tensor: Image feature extracted from inception.
         """
 
+        # range of images is related to data-preprocessor, therefore we first
+        # denorm image to [0, 255]
         # image must passed with 'bgr'
         image = image[:, [2, 1, 0]]
         image = image.to(self.device)
@@ -150,16 +153,22 @@ class FrechetInceptionDistance(GenerativeMetric):
             if self.sample_model in fake_img_:
                 fake_img_ = fake_img_[self.sample_model]
             # get specific fake_keys
-            if (self.fake_key is not None and self.fake_key in fake_img_):
-                fake_img_ = fake_img_[self.fake_key]['data']
-            else:
-                # get img tensor
-                fake_img_ = fake_img_['fake_img']['data']
+            fake_key = 'fake_img' if self.fake_key is None else self.fake_key
+            fake_img_ = obtain_data(fake_img_, fake_key, 'cuda')
             fake_imgs.append(fake_img_)
-        fake_imgs = torch.stack(fake_imgs, dim=0)
 
-        feat = self.forward_inception(fake_imgs)
-        feat_list = list(torch.split(feat, 1))
+        # check whether shape in fake_imgs are same
+        img_shape = fake_imgs[0].shape
+        if all([img.shape == img_shape for img in fake_imgs]):
+            # all images have the same shape, forward inception altogether
+            fake_imgs = torch.stack(fake_imgs, dim=0)
+            feat = self.forward_inception(fake_imgs)
+            feat_list = list(torch.split(feat, 1))
+        else:
+            # images have different shape, forward separately
+            feat_list = [
+                self.forward_inception(img[None, ...]) for img in fake_imgs
+            ]
         self.fake_results += feat_list
 
     @staticmethod
@@ -269,6 +278,9 @@ class TransFID(FrechetInceptionDistance):
             if self.sample_model in fake_img_:
                 fake_img_ = fake_img_[self.sample_model]
             # get specific fake_keys
+            fake_key = 'fake_img' if self.fake_key is None else self.fake_key
+            fake_img_ = obtain_data(fake_img_, fake_key, 'cuda')
+
             if (self.fake_key is not None and self.fake_key in fake_img_):
                 fake_img_ = fake_img_[self.fake_key]
             # get img tensor

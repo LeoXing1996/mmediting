@@ -81,7 +81,11 @@ class GenMetric(BaseMetric):
         ], ('Only support to collect \'fake\' or \'real\' results.')
         results = getattr(self, f'{target}_results')
         size = getattr(self, f'{target}_nums')
+        # target_size = getattr(self, f'{target}_nums')
+        # rank, world_size = get_dist_info()
         size = len(results) * get_world_size() if size == -1 else size
+        # print(f'rank: {rank}, class_{target}_size: '
+        #       f'{target_size} collect_size: {size}')
 
         if len(results) == 0:
             warnings.warn(

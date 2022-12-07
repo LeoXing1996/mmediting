@@ -353,7 +353,9 @@ def prepare_inception_feat(dataloader: DataLoader,
 
     real_feat = []
     mean = getattr(data_preprocessor, 'mean', None)
+    mean = getattr(data_preprocessor, 'input_mean', mean)
     std = getattr(data_preprocessor, 'std', None)
+    std = getattr(data_preprocessor, 'input_std', std)
 
     print_log(
         f'Inception pkl \'{inception_pkl}\' is not found, extract '
@@ -400,7 +402,6 @@ def prepare_inception_feat(dataloader: DataLoader,
                 visible=True)
 
     for data in inception_dataloader:
-        # inputs, _ = data_preprocessor(data)
         data = data_preprocessor(data)
 
         img = data['inputs']
@@ -408,12 +409,19 @@ def prepare_inception_feat(dataloader: DataLoader,
             real_key = 'img' if metric.real_key is None else metric.real_key
             img = img[real_key]
 
-        # make sure the input image is in [-1, 1]
+        # make sure the input image is in [-1, 1], if mean and std are neither
+        # not None, means images have normed by data preprocessor
         if mean is None and std is None:
             # rescale to [-1, 1]
             img = img / 127.5 - 1
+        elif mean is not None and std is not None:
+            # images after norm maybe in [0, 1] or [-1, 1], therefore we first
+            # de-norm them to [0, 255]
+            img = ((img * std) + mean).clamp(0, 255)
+            # then re-norm to [-1, 1]
+            img = img / 127.5 - 1
         else:
-            assert mean is not None and std is not None, (
+            raise ValueError(
                 '\'mean\' and \'std\' must be None or not None at the '
                 f'same time. But receive \'{mean}\' and \'{std}\' '
                 'respectively.')
