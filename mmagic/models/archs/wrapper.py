@@ -72,7 +72,7 @@ class DiffusersWrapper(BaseModule):
     def __init__(self,
                  from_pretrained: Optional[Union[str, os.PathLike]] = None,
                  from_config: Optional[Union[str, os.PathLike]] = None,
-                 dtype: Optional[Union[str, TORCH_DTYPE]] = None,
+                 torch_dtype: Optional[Union[str, TORCH_DTYPE]] = None,
                  init_cfg: Union[dict, List[dict], None] = None,
                  *args,
                  **kwargs):
@@ -86,26 +86,27 @@ class DiffusersWrapper(BaseModule):
         self._from_pretrained = from_pretrained
         self._from_config = from_config
 
+        if torch_dtype is not None:
+            if isinstance(torch_dtype, str):
+                assert torch_dtype in dtype_mapping, (
+                    'Only support following dtype string: '
+                    f'{list(dtype_mapping.keys())}, but receive '
+                    f'{torch_dtype}.')
+                torch_dtype = dtype_mapping[torch_dtype]
+            print_log(f'Set model dtype to \'{torch_dtype}\'.', 'current')
+
         if from_pretrained is not None:
-            self.model = module_cls.from_pretrained(from_pretrained, *args,
-                                                    **kwargs)
+            self.model = module_cls.from_pretrained(
+                from_pretrained, torch_dtype=torch_dtype, *args, **kwargs)
             # weight has been initialized from pretrained, therefore we
             # `self._is_init` as True manually
             self._is_init = True
         elif from_config is not None:
-            _config = module_cls.load_config(from_config, *args, **kwargs)
+            _config = module_cls.load_config(
+                from_config, torch_dtype=torch_dtype, *args, **kwargs)
             self.model = module_cls(**_config)
         else:
             self.model = module_cls(*args, **kwargs)
-
-        if dtype is not None:
-            if isinstance(dtype, str):
-                assert dtype in dtype_mapping, (
-                    'Only support following dtype string: '
-                    f'{list(dtype_mapping.keys())}, but receive {dtype}.')
-                dtype = dtype_mapping[dtype]
-            self.model.to(dtype)
-            print_log(f'Set model dtype to \'{dtype}\'.', 'current')
 
         self.config = self.model.config
 
@@ -121,7 +122,7 @@ class DiffusersWrapper(BaseModule):
                     'Has been loaded from pretrained model from '
                     f'\'{self._from_pretrained}\'. Your behavior is '
                     'very dangerous.', 'current', WARNING)
-        super().init_weights()
+            super().init_weights()
 
     def __getattr__(self, name: str) -> Any:
         """This function provide a way to access the attributes of the wrapped
